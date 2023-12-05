@@ -1,26 +1,43 @@
 import time
 import board
 import busio
+import bitbangio
 import math
 import digitalio
 import microcontroller
 import neopixel
 import os
-from adafruit_bno08x import (
-    BNO_REPORT_ACCELEROMETER,
-    BNO_REPORT_GYROSCOPE,
-    BNO_REPORT_MAGNETOMETER,
-    BNO_REPORT_ROTATION_VECTOR,
-    BNO_REPORT_GRAVITY,
-)
+import random
+import ipaddress
+import ssl
+import wifi
+import socketpool
+import adafruit_requests
+import secrets
+import json
+
+from adafruit_bno08x import BNO_REPORT_ROTATION_VECTOR
 from adafruit_bno08x.i2c import BNO08X_I2C
 
-i2c = busio.I2C(board.SCL, board.SDA, frequency=400000)
+# Bitbangio is used instead of busio because the bno08x does not implement the I2C
+# protocol correctly (it violates I2C's SDA-high to SCL-high setup-time requirement)
+# Bitbangio (which is software based) appears to be more lenient with the I2C requirement
+# allowing the program to (generally) function without issue
+#
+# More information: https://forums.adafruit.com/viewtopic.php?t=201558
+i2c = bitbangio.I2C(board.SCL, board.SDA, frequency=400000, timeout=1000)
 bno = BNO08X_I2C(i2c)
-
 bno.enable_feature(BNO_REPORT_ROTATION_VECTOR)
 
-new_file_name = f"data{str(len(os.listdir()))}.csv"
+# Change to reflect which foot the sensor is on
+CONST_FOOT = "left"
+
+# Set up the file name to store data to. This includes a file number that is based on the number of existing
+# data files (to cause it to increment), plus a random component (to differentiate once files are removed
+# from the device)
+new_file_name = ""
+while new_file_name == "" or new_file_name in os.listdir('/data/'):
+    new_file_name = f"{CONST_FOOT}-{len(os.listdir('/data/')):07d}-{random.randint(100000,999999)}.csv"
 
 print("Writing output to:", new_file_name)
 print("Waiting for start button")
@@ -32,14 +49,18 @@ button.pull = digitalio.Pull.DOWN
 pixel = neopixel.NeoPixel(board.NEOPIXEL, 1)
 pixel.brightness = 0.1
 
+# The pixel starts at red to let the user know it is not recording data
 pixel.fill((255, 0, 0))
 
+# The button press starts the "calibration" phase (which is really just ignoring the first few IMU sensor
+# readings while it calibrates)
 started = False
 while not started:
     if not button.value:
         started=True
     time.sleep(0.1)
 
+# The pixel is yellow while it is calibrating
 pixel.fill((200, 80, 0))
 
 print("Calibrating")
@@ -49,78 +70,114 @@ yaw_adjust = None
 
 quat_adjust = []
 
-time.sleep(1)
 for a in range(10):
     quat_i, quat_j, quat_k, quat_real = bno.quaternion
-    quat_adjust = bno.quaternion
-    roll_rad = math.atan2(2 * (quat_real * quat_i + quat_j * quat_k), 1 - 2 * (quat_i**2 + quat_j**2))
-    pitch_rad = math.asin(2 * (quat_real * quat_j - quat_k * quat_i))
-    yaw_rad = math.atan2(2 * (quat_real * quat_k + quat_i * quat_j), 1 - 2 * (quat_j**2 + quat_k**2))
-    roll_adjust = math.degrees(roll_rad)
-    pitch_adjust = math.degrees(pitch_rad)
-    yaw_adjust = math.degrees(yaw_rad)
-    time.sleep(0.1)
-
-quat_adjust = [-quat_adjust[0], -quat_adjust[1], -quat_adjust[2], quat_adjust[3]]
-print(quat_adjust)
-time.sleep(5)
+    
 print("Calibration complete:")
-print(f"{roll_adjust},{pitch_adjust},{yaw_adjust}\n")
 
 pixel.fill((0, 255, 0))
 
-def multiply_quaternions(q1, q2):
-    # Unpack the quaternions
-    b1, c1, d1, a1 = q1
-    b2, c2, d2, a2 = q2
+with open("/data/" + new_file_name, "a") as fp:
+        while started:
+            try:
+                    quat_i, quat_j, quat_k, quat_real = bno.quaternion
+            except:
+                    # We got a read error - time to stop (and save the file)
+                    # Usually this is caused by someone touching one of the I2C
+                    # wires (their capacitance causes the clock issue to get worse)
+                print("BNO08X read error!")
+                break
+            output_string = f"{time.monotonic()},{quat_i},{quat_j},{quat_k},{quat_real}"
+            fp.write(output_string + "\n")
+            print(output_string)
+            if not button.value:
+                started=False
 
-    # Compute the product
-    real = a1*a2 - b1*b2 - c1*c2 - d1*d2
-    i = a1*b2 + b1*a2 + c1*d2 - d1*c2
-    j = a1*c2 - b1*d2 + c1*a2 + d1*b2
-    k = a1*d2 + b1*c2 - c1*b2 + d1*a2
+# The pixel is red once recording stops
+pixel.fill((255, 0, 0))
 
-    return [i, j, k, real]
+# Code to get the time is from AdaFruit: https://learn.adafruit.com/adafruit-magtag/getting-the-date-time
+
+# Get wifi details and more from a secrets.py file
+try:
+    from secrets import secrets
+except ImportError:
+    print("WiFi secrets are kept in secrets.py, please add them there!")
+
+# If we can't connect we won't be able to store the time
+try:
+    # Get our username, key and desired timezone
+    aio_username = secrets["aio_username"]
+    aio_key = secrets["aio_key"]
+    location = secrets.get("timezone", None)
+    TIME_URL = "https://io.adafruit.com/api/v2/%s/integrations/time/strftime?x-aio-key=%s&tz=%s" % (aio_username, aio_key, location)
+    TIME_URL += "&fmt=%25Y-%25m-%25d+%25H%3A%25M%3A%25S.%25L"
+
+    print("Connecting to %s"%secrets["ssid"])
+    wifi.radio.connect(secrets["ssid"], secrets["password"])
+    print("Connected to %s!"%secrets["ssid"])
+    print("My IP address is", wifi.radio.ipv4_address)
+
+    ipv4 = ipaddress.ip_address("8.8.4.4")
+
+    pool = socketpool.SocketPool(wifi.radio)
+    requests = adafruit_requests.Session(pool, ssl.create_default_context())
+
+    print("Fetching time")
+    response = requests.get(TIME_URL)
+    current_time = response.text
+    print(current_time)
+    time_offset = time.monotonic()
+    print(time_offset)
+except:
+    current_time = "Unknown"
+    time_offset = time.monotonic()
+
+# Store this file in the unsaved file list until we successfully upload it
+with open("/data/unsaved_file_list.csv", "a") as fp:
+    file_info = f"{new_file_name},{current_time},{time_offset}\n"
+    fp.write(file_info)
+
+unsaved_file_list = open('/data/unsaved_file_list.csv', 'r')
+unsaved_files = unsaved_file_list.readlines()
 
 try:
-    with open("/" + new_file_name, "a") as fp:
-        fp.write(f"0,{roll_adjust},{pitch_adjust},{yaw_adjust}\n")
-        while started:
-            #quat_i, quat_j, quat_k, quat_real = bno.quaternion
-            quat_current = bno.quaternion
-            quat_i, quat_j, quat_k, quat_real = bno.quaternion #multiply_quaternions(quat_current, quat_adjust)
-            roll_rad = math.atan2(2 * (quat_real * quat_i + quat_j * quat_k), 1 - 2 * (quat_i**2 + quat_j**2))
-            pitch_rad = math.asin(2 * (quat_real * quat_j - quat_k * quat_i))
-            yaw_rad = math.atan2(2 * (quat_real * quat_k + quat_i * quat_j), 1 - 2 * (quat_j**2 + quat_k**2))
-            # Convert to degrees
-            roll = math.degrees(roll_rad)
-            pitch = math.degrees(pitch_rad)
-            yaw = math.degrees(yaw_rad)
-            fp.write(f"{time.monotonic_ns()},{roll},{pitch},{yaw}\n")
-            print(f"{time.monotonic_ns()},{roll},{pitch},{yaw}")
-            if not button.value:
-                started=False
-            time.sleep(0.01)
+    for file in unsaved_files:
+        file_name, file_time, file_time_offset = str.split(file, ",")
+
+        request_object = {}
+        request_object['file_name'] = file_name
+        request_object['file_time'] = file_time
+        request_object['file_time_offset'] = file_time_offset
+        request_object['data'] = []
+
+        sending_file = open("/data/" + file_name, "r")
+        sending_file_lines = sending_file.readlines()
+        line_count = 0
+        for line in sending_file_lines:
+            line_count += 1
+            line_time, quat_i, quat_j, quat_k, quat_real = str.split(line, ",")
+            line_object = {}
+            line_object['line_time'] = line_time.strip()
+            line_object['quat_i'] = quat_i
+            line_object['quat_j'] = quat_j
+            line_object['quat_k'] = quat_k
+            line_object['quat_real'] = quat_real
+            request_object['data'].append(line_object)
+            if line_count == 50:
+                response = requests.post("https://j88641zc71.execute-api.us-east-2.amazonaws.com/items", json=request_object)
+                print(response.text)
+                print(json.dumps(request_object))
+                request_object['data'] = []
+                time.sleep(5)
+        
+        response = requests.post("https://j88641zc71.execute-api.us-east-2.amazonaws.com/items", json=request_object)
+        print(response.text)
+        print(json.dumps(request_object))
+        request_object['data'] = []
+        time.sleep(5)
+
+        print(file_name, file_time, file_time_offset)
+    os.remove('/data/unsaved_file_list.csv')
 except:
-    print("Read Only")
-    while started:
-            #quat_i, quat_j, quat_k, quat_real = bno.quaternion
-
-            quat_current = bno.quaternion
-            quat_i, quat_j, quat_k, quat_real = bno.quaternion #multiply_quaternions(quat_current, quat_adjust)
-
-            roll_rad = math.atan2(2 * (quat_real * quat_i + quat_j * quat_k), 1 - 2 * (quat_i**2 + quat_j**2))
-            pitch_rad = math.asin(2 * (quat_real * quat_j - quat_k * quat_i))
-            yaw_rad = math.atan2(2 * (quat_real * quat_k + quat_i * quat_j), 1 - 2 * (quat_j**2 + quat_k**2))
-
-            # Convert to degrees
-            roll = math.degrees(roll_rad)
-            pitch = math.degrees(pitch_rad)
-            yaw = math.degrees(yaw_rad)
-            print(f"{time.monotonic_ns()},{roll},{pitch},{yaw}")
-            if not button.value:
-                started=False
-            time.sleep(0.01)
-
-pixel.fill((255, 0, 0))
-time.sleep(5)
+    print("Error uploading files to API")
