@@ -77,6 +77,8 @@ print("Calibration complete:")
 
 pixel.fill((0, 255, 0))
 
+start_time = time.monotonic()
+
 with open("/data/" + new_file_name, "a") as fp:
         while started:
             try:
@@ -126,12 +128,14 @@ try:
     print("Fetching time")
     response = requests.get(TIME_URL)
     current_time = response.text
-    print(current_time)
-    time_offset = time.monotonic()
-    print(time_offset)
+    time_offset = time.monotonic() - start_time
+    date_format = "%Y-%m-%d %H:%M:%S.%f"
+    print("Current Time: ", current_time)
+    print("Time Offset: " , time_offset)
 except:
-    current_time = "Unknown"
-    time_offset = time.monotonic()
+    # Use this as a default time if no time information is available
+    current_time = "2000-01-01 00:00:00.000000"
+    time_offset = 0
 
 # Store this file in the unsaved file list until we successfully upload it
 with open("/data/unsaved_file_list.csv", "a") as fp:
@@ -143,41 +147,37 @@ unsaved_files = unsaved_file_list.readlines()
 
 try:
     for file in unsaved_files:
-        file_name, file_time, file_time_offset = str.split(file, ",")
+        file_name, current_time, time_offset = str.split(file, ",")
 
         request_object = {}
         request_object['file_name'] = file_name
-        request_object['file_time'] = file_time
-        request_object['file_time_offset'] = file_time_offset
+        request_object['current_time'] = current_time
+        request_object['time_offset'] = time_offset.strip()
         request_object['data'] = []
+        request_object['data_points'] = 0
 
         sending_file = open("/data/" + file_name, "r")
         sending_file_lines = sending_file.readlines()
-        line_count = 0
         for line in sending_file_lines:
-            line_count += 1
+            request_object['data_points'] += 1
             line_time, quat_i, quat_j, quat_k, quat_real = str.split(line, ",")
-            line_object = {}
-            line_object['line_time'] = line_time.strip()
-            line_object['quat_i'] = quat_i
-            line_object['quat_j'] = quat_j
-            line_object['quat_k'] = quat_k
-            line_object['quat_real'] = quat_real
-            request_object['data'].append(line_object)
-            if line_count == 50:
+            request_object['data'].append([float(line_time), float(quat_i), float(quat_j), float(quat_k), float(str.strip(quat_real))])
+            if request_object['data_points'] >= 500:
+                print(json.dumps(request_object))
                 response = requests.post("https://j88641zc71.execute-api.us-east-2.amazonaws.com/items", json=request_object)
                 print(response.text)
-                print(json.dumps(request_object))
                 request_object['data'] = []
-                time.sleep(5)
-        
+                time.sleep(1)
+                request_object['data_points'] = 0
+        print(json.dumps(request_object))
         response = requests.post("https://j88641zc71.execute-api.us-east-2.amazonaws.com/items", json=request_object)
         print(response.text)
-        print(json.dumps(request_object))
         request_object['data'] = []
-        time.sleep(5)
+        time.sleep(1)
 
-        print(file_name, file_time, file_time_offset)
     os.remove('/data/unsaved_file_list.csv')
-except:
-    print("Error uploading files to API")
+except Exception as error:
+    print("An exception occurred uploading to the API:", error)
+
+
+pixel.fill((0, 127, 0))
