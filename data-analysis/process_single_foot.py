@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import time as tm
 import math
 import scipy
+import json
 from scipy.interpolate import make_interp_spline
 from scipy.signal import find_peaks
 
@@ -14,9 +15,13 @@ with open('../example-data/right-foot.csv', newline='') as csvfile:
     for row in reader:
         ankle_data_right_raw.append([float(col) for col in row])
 
+ankle_data_right_raw = [[a[0] / 1000000000, a[1], a[2], a[3]] for a in ankle_data_right_raw]
+
 ankle_data_right = np.array(ankle_data_right_raw)
 
-time_right = ankle_data_right[:,0] / 1000000000
+print(ankle_data_right_raw)
+
+time_right = ankle_data_right[:,0]
 pitch_right = ankle_data_right[:,1]
 roll_right = ankle_data_right[:,2]
 

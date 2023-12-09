@@ -1,0 +1,29 @@
+<html>
+    <link rel="stylesheet" href="index.css"></script>
+    <head>
+        <meta charset="UTF-8">
+        <title>Foot IMU Data Visualization</title>
+    </head>
+    <body>
+        <div class="wrapper">
+            <div class="column">
+                <table id="file-names">
+                    <tr>
+                        <th class="plus"></th>
+                        <th>File Name</th>
+                        <th>File Date</th>
+                        <th>Data Points</th>
+                    </tr>
+                </table>
+            </div>
+            <div class="column">
+                <div id='chart'></div>
+                <table id="file-info">
+                    <div class="file-info-rows"></div>
+                </table>
+            </div>
+        </div>
+    </body>
+    <script src="d3.v7.js"></script>
+    <script src="visualize.js"></script>
+</html>

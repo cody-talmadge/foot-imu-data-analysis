@@ -177,13 +177,13 @@ def lambda_handler(event, context):
                     response_body['average_pitch_range'] = [round(np.mean(pitch_max), 1), round(np.mean(pitch_min), 1)]
                     response_body['average_roll_range'] = [round(np.mean(roll_max), 1), round(np.mean(roll_min), 1)]
                     
-                    # We're going to break each step down into 30 pieces and then calculate the average pitch/roll across all steps
+                    # We're going to break each step down into 20 pieces and then calculate the average pitch/roll across all steps
                     # for each of those pieces.  This will allow us to later graph the average across all steps
-                    average_number_of_pieces = 30
+                    average_number_of_pieces = 20
                     # We create empty lists to store the average pitch and roll data
                     pitch_average = [[] for _ in range(average_number_of_pieces)]
                     roll_average = [[] for _ in range(average_number_of_pieces)]
-                    # Calculate the start time for each of these 30 pieces (based on splitting the average step time into 30 intervals)
+                    # Calculate the start time for each of these 20 pieces (based on splitting the average step time into 30 intervals)
                     pitch_average_time = [i * np.mean(total_step_times) / (average_number_of_pieces - 1) for i in range(average_number_of_pieces)]
 
                     # Go through each point of each step and put it into the appropriate interval bucket in pitch_average and roll_average
