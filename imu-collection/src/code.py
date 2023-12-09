@@ -1,3 +1,6 @@
+# This code is designed to run on an AdaFruit Feather v2 microcontroller: https://www.adafruit.com/product/5400
+# with a connected BNO08X sensor: https://www.adafruit.com/product/4754
+
 import time
 import board
 import bitbangio
@@ -171,7 +174,8 @@ try:
             line_time, quat_i, quat_j, quat_k, quat_real = str.split(line, ",")
             request_object['data'].append([float(line_time), float(quat_i), float(quat_j), float(quat_k), float(str.strip(quat_real))])
 
-            # Send the data to the API in 500 row chunks (so we don't run out of memory to store our request_object on the ESP32)
+            # Send the data to the API we set up to receive it in 500 row chunks
+            # (chunked so we don't run out of memory to store our request_object on the ESP32)
             if request_object['data_points'] >= 500:
                 print(json.dumps(request_object))
                 response = requests.post("https://j88641zc71.execute-api.us-east-2.amazonaws.com/items", json=request_object)
