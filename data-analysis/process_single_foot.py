@@ -25,6 +25,10 @@ time_right = ankle_data_right[:,0]
 pitch_right = ankle_data_right[:,1]
 roll_right = ankle_data_right[:,2]
 
+plt.plot(time_right, pitch_right, color="r", alpha=1, linewidth=3, label="Pitch")
+plt.plot(time_right, roll_right, color="b", alpha=1, linewidth=3, label="Roll")
+plt.show()
+
 smoothed_pitch = scipy.ndimage.gaussian_filter1d(pitch_right, sigma=2)
 peaks, _ = find_peaks(pitch_right, prominence=1)  # play with the prominence value
 troughs, _ = find_peaks(-pitch_right, prominence=1)  # for troughs, invert the signal
@@ -131,8 +135,8 @@ Roll_ = Roll_Spline(Time_)
 
 # plt.plot(pitch_average_time, pitch_average, color="b", alpha=1, linewidth=2, label="Average Step Pitch Angle")
 # plt.plot(pitch_average_time, roll_average, color="r", alpha=1, linewidth=2, label="Average Step Roll Angle")
-plt.plot(Time_, Roll_, color="r", alpha=1, linewidth=3, label="Average Step Roll Angle")
-plt.plot(Time_, Pitch_, color="b", alpha=1, linewidth=3, label="Average Step Pitch Angle")
+# plt.plot(Time_, Roll_, color="r", alpha=1, linewidth=3, label="Average Step Roll Angle")
+# plt.plot(Time_, Pitch_, color="b", alpha=1, linewidth=3, label="Average Step Pitch Angle")
 plt.legend()    
 plt.show()
 

@@ -75,7 +75,7 @@ def lambda_handler(event, context):
                     # We need to convert the roll data for right feet so that steps can be
                     # compared between right and left feet (we want an outside roll to always
                     # have the same cardinality regardless of which foot it is)
-                    if file_name[0:3] == "left":
+                    if file_name[0:4] == "left":
                         roll_data = ankle_data[:,2]
                     else:
                         roll_data = -ankle_data[:,2]
